@@ -89,9 +89,12 @@ def test_hash_table_basic(lib: Any, ffi: FFI) -> None:
     val = ffi.new("int32 *", 42)
     lib.hash_table_enter(ht, key, val)
 
-    # Lookup
-    result = lib.hash_table_lookup(ht, key)
-    assert result is not None
+    # Lookup: hash_table_lookup(h, key, void **val) returns 0 on hit and
+    # writes the stored pointer into *out.
+    out = ffi.new("void **")
+    rc = lib.hash_table_lookup(ht, key, out)
+    assert rc == 0
+    assert out[0] == ffi.cast("void *", val)
 
     lib.hash_table_free(ht)
 
@@ -127,8 +130,10 @@ def test_hash_table_replace(lib: Any, ffi: FFI) -> None:
     lib.hash_table_replace(ht, key, ffi.cast("void *", val2))
 
     # Verify the pointer was replaced
-    result = lib.hash_table_lookup(ht, key)
-    assert result is not None
+    out = ffi.new("void **")
+    rc = lib.hash_table_lookup(ht, key, out)
+    assert rc == 0
+    assert out[0] == ffi.cast("void *", val2)
 
     lib.hash_table_free(ht)
 
@@ -232,19 +237,24 @@ def test_hash_table_multiple_entries(lib: Any, ffi: FFI) -> None:
     keys = [b"one", b"two", b"three"]
     values = [1, 2, 3]
 
-    # Store pointers to the values
+    # Store pointers to the values. hash_table_enter keeps the key pointer
+    # (it does not copy), so the key buffers must stay alive for the lifetime
+    # of the table — keep references to both keys and values.
+    stored_keys = []
     stored_ptrs = []
     for key_bytes, val in zip(keys, values, strict=False):
         key = ffi.new("char[]", key_bytes)
         val_ptr = ffi.new("int32 *", val)
+        stored_keys.append(key)
         stored_ptrs.append(val_ptr)
         lib.hash_table_enter(ht, key, ffi.cast("void *", val_ptr))
 
-    # Verify all entries can be looked up
-    for key_bytes in keys:
-        key = ffi.new("char[]", key_bytes)
-        result = lib.hash_table_lookup(ht, key)
-        assert result is not None
+    # Verify all entries can be looked up and return the stored value pointer.
+    for key, val_ptr in zip(stored_keys, stored_ptrs, strict=False):
+        out = ffi.new("void **")
+        rc = lib.hash_table_lookup(ht, key, out)
+        assert rc == 0
+        assert out[0] == ffi.cast("void *", val_ptr)
 
     lib.hash_table_free(ht)
 

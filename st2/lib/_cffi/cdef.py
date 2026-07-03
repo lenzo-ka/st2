@@ -364,7 +364,7 @@ void hash_table_free(hash_table_t *h);
 void *hash_table_enter(hash_table_t *h, const char *key, void *val);
 void *hash_table_replace(hash_table_t *h, const char *key, void *val);
 void *hash_table_delete(hash_table_t *h, const char *key);
-void *hash_table_lookup(hash_table_t *h, const char *key);
+int32 hash_table_lookup(hash_table_t *h, const char *key, void **val);
 int32 hash_table_lookup_int32(hash_table_t *h, const char *key, int32 *out_val);
 
 // ============================================================
