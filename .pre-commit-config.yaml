@@ -1,0 +1,57 @@
+# Pre-commit hooks for st2
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  # Basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(build/|\.eggs/)
+      - id: end-of-file-fixer
+        exclude: ^(build/|\.eggs/)
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+        exclude: \.(wav|mp3|flac|ogg)$
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Python code quality - Ruff (fast linter and formatter)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.15
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+        exclude: ^(build/|csrc/libs/libsphinxbase/(fe|util)/.*\.py$)
+      # Run the formatter
+      - id: ruff-format
+        exclude: ^(build/|csrc/libs/libsphinxbase/(fe|util)/.*\.py$)
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [pydantic>=2.0, types-PyYAML, pytest>=7.0]
+        exclude: ^(build/|\.eggs/|csrc/)
+        args: [--no-strict-optional, --ignore-missing-imports]
+
+# Exclude certain paths globally
+exclude: |
+  (?x)^(
+      csrc/|
+      build/|
+      venv/|
+      \.eggs/|
+      \.git/|
+      \.mypy_cache/|
+      \.ruff_cache/|
+      __pycache__/|
+      \.pytest_cache/
+  )$

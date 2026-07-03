@@ -1,0 +1,120 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  # C library tests
+  c-tests:
+    name: C tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_CLI=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        # --no-tests=error guards against silently passing on an empty test
+        # set (the previous failure mode: no add_test() anywhere).
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+  # Python tests across versions
+  python-tests:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test every Python we ship wheels + classifiers for (3.10-3.13).
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+
+      - name: Build C library
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CLI=ON
+          cmake --build build
+
+      - name: Install package (editable)
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        # ST2_REQUIRE_CLIB=1 turns "C library not loadable" from a silent
+        # skip into a hard failure, so this job can't go green while the
+        # entire CFFI/parity tier is quietly skipped.
+        env:
+          ST2_REQUIRE_CLIB: "1"
+        run: pytest -v --cov=st2 --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # Lint checks
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Run ruff
+        run: ruff check st2/
+
+      - name: Run ruff format check
+        run: ruff format --check st2/
+
+  # Type checking
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy st2/ --ignore-missing-imports
