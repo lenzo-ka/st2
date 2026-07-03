@@ -1,0 +1,242 @@
+"""Tests for st2.lib.pipeline.tasks.
+
+Validates that the task graph builds cleanly, every registered target
+resolves to a known output, and every task's declared inputs are produced
+by some other task or treated as required external files.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from st2.lib.pipeline import PipelineContext
+from st2.lib.pipeline.tasks import TARGETS, build_pipeline
+
+
+@pytest.fixture
+def empty_project(tmp_path: Path) -> Path:
+    """A minimal project layout: empty fileids, presence of the required
+    'shared' files so paths resolve. No actual audio/training data."""
+    project = tmp_path / "proj"
+    (project / "shared").mkdir(parents=True)
+    (project / "audio").mkdir(parents=True)
+    (project / "etc").mkdir(parents=True)
+    (project / "experiments" / "default" / "etc").mkdir(parents=True)
+
+    (project / "shared" / "phoneset.txt").write_text("AA\nAE\nB\nSIL\n")
+    (project / "shared" / "dictionary.dict").write_text("HELLO HH EH L OW\n")
+    (project / "etc" / "all.transcription").write_text("")
+    (project / "experiments" / "default" / "etc" / "train.fileids").write_text("")
+    (project / "experiments" / "default" / "etc" / "test.fileids").write_text("")
+    (project / "experiments" / "default" / "etc" / "train.transcription").write_text("")
+
+    return project
+
+
+def test_pipeline_builds_without_error(empty_project: Path) -> None:
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    assert len(pl.tasks()) > 0
+    assert len(pl.targets()) > 0
+
+
+def test_all_registered_targets_have_producers(empty_project: Path) -> None:
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    for target_name, target_path in pl.targets().items():
+        # Every registered target's sentinel path must be produced by some task.
+        all_outputs = {Path(o) for task in pl.tasks().values() for o in task.outputs}
+        assert target_path in all_outputs, (
+            f"target {target_name!r} resolves to {target_path}, which no task produces"
+        )
+
+
+def test_every_target_in_TARGETS_is_registered(empty_project: Path) -> None:
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    registered = set(pl.targets())
+    declared = {spec.name for spec in TARGETS}
+    missing = declared - registered
+    # `flat` is intentionally a build step but not currently registered as a
+    # standalone target since it always runs as a dependency of ci-1g; allow it.
+    missing.discard("flat")
+    assert not missing, f"declared but not registered: {sorted(missing)}"
+
+
+def test_can_plan_each_ci_and_cd_target(empty_project: Path) -> None:
+    """Plan every CI/CD target. With empty fileids, feature files are
+    absent, so the plan will mark them stale. We just want a clean plan
+    (no cycles, no missing producers)."""
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    for spec in TARGETS:
+        if spec.kind in {"ci", "cd"}:
+            plan = pl.plan(spec.name)
+            assert plan, f"empty plan for {spec.name}"
+            # Every plan ends in a task that produces the target sentinel.
+            last = plan[-1]
+            sentinel = pl.targets()[spec.name]
+            assert sentinel in {Path(p) for p in last.task.outputs}
+
+
+def test_cd_8g_plan_includes_full_chain(empty_project: Path) -> None:
+    """Sanity: building cd-8g should require flat, ci-1g, cd-untied, etc."""
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    plan = pl.plan("cd-8g")
+    names = [e.task.name for e in plan]
+    for required in [
+        "flat",
+        "ci-1g",
+        "cd-untied-init",
+        "cd-untied",
+        "questions",
+        "trees",
+        "prune-trees",
+        "alltriphones-mdef",
+        "cd-1g-init",
+        "cd-1g",
+        "cd-2g",
+        "cd-4g",
+        "cd-8g",
+    ]:
+        assert required in names, f"missing {required!r} in plan: {names}"
+
+    # And the order respects dependencies for a few key pairs.
+    assert names.index("flat") < names.index("ci-1g")
+    assert names.index("ci-1g") < names.index("cd-untied-init")
+    assert names.index("cd-untied") < names.index("trees")
+    assert names.index("prune-trees") < names.index("cd-1g-init")
+    assert names.index("cd-1g") < names.index("cd-2g") < names.index("cd-8g")
+
+
+def test_fanout_tasks_share_parallel_group(empty_project: Path) -> None:
+    """Add two audio files and ensure their extract tasks share the same
+    parallel group. Note: extract tasks now derive from `audio/*.wav`
+    (corpus-wide) rather than train.fileids, so the split task does not
+    need to have run for fan-out planning."""
+    for fid in ["utt_a", "utt_b"]:
+        (empty_project / "audio" / f"{fid}.wav").write_text("fake-wav")
+
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    tasks = pl.tasks()
+    extracts = [t for name, t in tasks.items() if name.startswith("extract:")]
+    assert len(extracts) == 2
+    groups = {t.parallel_group for t in extracts}
+    assert groups == {"features"}
+
+
+def test_split_task_produces_fileid_files(empty_project: Path) -> None:
+    """Split should be registered as a task with the four expected outputs
+    and as a target whose sentinel is train.fileids."""
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+
+    split = pl.tasks()["split"]
+    output_names = {p.name for p in split.outputs}
+    assert output_names == {
+        "train.fileids",
+        "test.fileids",
+        "train.transcription",
+        "test.transcription",
+    }
+    assert pl.targets()["split"].name == "train.fileids"
+
+
+def test_split_runs_end_to_end_and_partitions(tmp_path: Path) -> None:
+    """The split task should write all four files when invoked."""
+    project = tmp_path / "proj"
+    (project / "etc").mkdir(parents=True)
+    (project / "shared").mkdir(parents=True)
+    (project / "audio").mkdir(parents=True)
+    (project / "experiments" / "default" / "etc").mkdir(parents=True)
+    (project / "shared" / "phoneset.txt").write_text("AA\nB\n")
+    (project / "shared" / "dictionary.dict").write_text("HI HH AY\n")
+
+    transcripts = "\n".join(f"utt_{i:03d} HELLO WORLD" for i in range(20)) + "\n"
+    (project / "etc" / "all.transcription").write_text(transcripts)
+
+    ctx = PipelineContext.from_config(project)
+    pl = build_pipeline(ctx)
+    assert pl.run("split") == 0
+
+    etc = project / "experiments" / "default" / "etc"
+    train_ids = (etc / "train.fileids").read_text().splitlines()
+    test_ids = (etc / "test.fileids").read_text().splitlines()
+    assert len(train_ids) + len(test_ids) == 20
+    assert set(train_ids).isdisjoint(set(test_ids))
+
+
+def test_tree_building_is_fanned_out(empty_project: Path) -> None:
+    """Each (phone, state) gets its own task in the 'trees' parallel
+    group, plus a sentinel 'trees' task that depends on all of them."""
+    # The empty_project fixture writes a 4-phone phoneset; tree building
+    # skips SIL, leaving 3 phones x 3 states = 9 per-tree tasks.
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    tasks = pl.tasks()
+
+    per_tree = [t for name, t in tasks.items() if name.startswith("tree:")]
+    assert len(per_tree) == 9
+    assert all(t.parallel_group == "trees" for t in per_tree)
+
+    sentinel = tasks["trees"]
+    assert sentinel.parallel_group == ""
+    tree_outputs = {p for t in per_tree for p in t.outputs}
+    assert tree_outputs.issubset(set(sentinel.inputs))
+
+
+def test_model_tasks_depend_on_split_outputs(empty_project: Path) -> None:
+    """flat and ci-Ng tasks should depend on train.fileids etc, which the
+    split task produces. Planning cd-1g without prior split should plan
+    split first."""
+    ctx = PipelineContext.from_config(empty_project)
+    pl = build_pipeline(ctx)
+    # Wipe the post-split files so split is stale.
+    for fname in ["train.fileids", "test.fileids", "train.transcription"]:
+        (empty_project / "experiments" / "default" / "etc" / fname).unlink(missing_ok=True)
+    plan = pl.plan("cd-1g")
+    names = [e.task.name for e in plan]
+    assert "split" in names
+    assert names.index("split") < names.index("flat")
+
+
+def test_named_config_overrides_defaults(empty_project: Path) -> None:
+    """The 'telephone' config should change sample rate and filter count."""
+    ctx = PipelineContext.from_config(empty_project, config_name="telephone")
+    assert ctx.feat.samprate == 8000
+    assert ctx.feat.nfilt == 25
+    # And the features dir reflects the config name.
+    assert ctx.features_dir.name == "telephone"
+
+
+def test_unknown_config_raises(empty_project: Path) -> None:
+    with pytest.raises(ValueError, match="unknown config"):
+        PipelineContext.from_config(empty_project, config_name="nonsense")
+
+
+def test_multipron_training_defaults_on(empty_project: Path) -> None:
+    """Multi-pron training is on by default at every layer."""
+    ctx = PipelineContext.from_config(empty_project)
+    assert ctx.train.multipron_training is True
+
+
+def test_multipron_training_can_be_disabled(empty_project: Path) -> None:
+    """Per-config opt-out via etc/configs.yaml."""
+    (empty_project / "etc" / "configs.yaml").write_text(
+        "default:\n  description: legacy\n  training:\n    multipron_training: false\n"
+    )
+    ctx = PipelineContext.from_config(empty_project)
+    assert ctx.train.multipron_training is False
+
+
+def test_bw_config_multipron_default_on() -> None:
+    """BWConfig also defaults multipron on so library callers
+    get the new behavior unless they explicitly opt out."""
+    from st2.lib.bw import BWConfig
+
+    assert BWConfig().multipron is True
+    assert BWConfig(multipron=False).multipron is False

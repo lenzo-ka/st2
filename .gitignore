@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Build artifacts (root level only, not st2/lib/)
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/_build/
+
+# Built C library artifacts
+st2/lib/_cffi/*.dylib
+st2/lib/_cffi/*.so
+st2/lib/_cffi/*.dll
+build.log
+
+# Testing data (do not commit)
+# CMU Arctic downloads and extracted data
+cmu_arctic/
+cmu_us_*_arctic/
+*.tar.bz2
+/Volumes/hacks/lenzo/st2/projects/
+.snakemake/
+
+# Generated training data and models
+audio/
+shared/
+experiments/
+dist/
+*.mfc
+*.wav
+data/
+
+# ...but committed test fixtures are not generated artifacts. Keep them.
+# (These broad patterns over-reach — see plan 3.5; this negation is the
+# minimal fix so the mini_arctic e2e corpus is tracked.)
+!tests/fixtures/**
+!tests/fixtures/mini_arctic/wav/*.wav
