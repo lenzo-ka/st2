@@ -330,7 +330,7 @@ float64 logmath_get_base(logmath_t *lmath);
 // COMMAND LINE
 // ============================================================
 
-cmd_ln_t *cmd_ln_init(void *defn, int32 strict, ...);
+cmd_ln_t *cmd_ln_init(cmd_ln_t *inout_cmdln, void *defn, int32 strict, ...);
 cmd_ln_t *cmd_ln_parse_r(cmd_ln_t *inout_cmdln,
                           const arg_t *defn,
                           int32 argc, char *argv[],

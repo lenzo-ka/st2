@@ -160,14 +160,16 @@ def test_hash_table_delete(lib: Any, ffi: FFI) -> None:
 
 def test_cmd_ln_init_free(lib: Any, ffi: FFI) -> None:
     """Test command line initialization."""
-    cmdln = lib.cmd_ln_init(ffi.NULL, 0)
+    # cmd_ln_init(inout_cmdln, defn, strict, ...) is variadic and
+    # NULL-terminated; an empty config is (NULL, NULL, FALSE, NULL).
+    cmdln = lib.cmd_ln_init(ffi.NULL, ffi.NULL, 0, ffi.NULL)
     assert cmdln is not None
     lib.cmd_ln_free_r(cmdln)
 
 
 def test_cmd_ln_str_r(lib: Any, ffi: FFI) -> None:
     """Test command line string retrieval."""
-    cmdln = lib.cmd_ln_init(ffi.NULL, 0)
+    cmdln = lib.cmd_ln_init(ffi.NULL, ffi.NULL, 0, ffi.NULL)
 
     # Set a string value (this requires proper arg_t definition, skip for now)
     # Just test that free works
