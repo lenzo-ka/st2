@@ -146,6 +146,23 @@ def _find_lib_path() -> Path | None:
             if candidate.exists():
                 return candidate
 
+    # 2b. Wheel repaired by auditwheel (Linux) or delocate (macOS): the bundled
+    #     shared library may be relocated out of st2/_lib/lib into a vendored
+    #     sibling directory under a hashed name (e.g. st2.libs/libst2c-abc.so).
+    #     Match it by glob and return the full path (dlopen by path handles the
+    #     hashed name).
+    pkg_dir = Path(__file__).resolve().parent.parent  # .../st2
+    vendored_dirs = [
+        pkg_dir.parent / "st2.libs",  # auditwheel
+        pkg_dir / ".dylibs",  # delocate
+    ]
+    for vendored in vendored_dirs:
+        if vendored.is_dir():
+            for pattern in ("libst2c*.so", "libst2c*.dylib"):
+                hits = sorted(vendored.glob(pattern))
+                if hits:
+                    return hits[0]
+
     # 3. Development build. On Windows the shared library is a RUNTIME
     #    artifact and lands in build/bin (CMAKE_RUNTIME_OUTPUT_DIRECTORY),
     #    not build/lib, so search there too.

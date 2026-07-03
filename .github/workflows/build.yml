@@ -24,14 +24,17 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  # Build wheels on multiple platforms
+  # Build wheels on multiple platforms.
+  # Windows is intentionally omitted: the vendored CMU Sphinx C does not yet
+  # build under MSVC (POSIX-only drand48 and several unresolved sphinx3_align
+  # symbols). Restore windows-latest here once that portability work is done.
   build-wheels:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 

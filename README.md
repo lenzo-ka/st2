@@ -115,6 +115,9 @@ This is an early alpha; a few rough edges are known and tracked:
   does not exist); pass `--phoneset` explicitly.
 - Two configuration systems coexist; the pydantic `etc/config.yaml` does not yet
   drive training (the pipeline reads `etc/configs.yaml`).
+- **Platforms:** Linux and macOS are supported (wheels + CI). Windows is not yet
+  supported — the vendored CMU Sphinx C does not build under MSVC (POSIX-only
+  `drand48` and some unresolved symbols); build from source on WSL for now.
 
 ## Acknowledgements
 
