@@ -3,7 +3,7 @@ name = "st2"
 version = "0.1.0"
 description = "ST2 - Acoustic model training toolkit"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "BSD-2-Clause"}
 requires-python = ">=3.10"
 authors = [
     { name = "Kevin Lenzo", email = "kevinlenzo@gmail.com" }

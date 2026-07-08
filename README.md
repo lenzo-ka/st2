@@ -128,9 +128,9 @@ and Sphinx-3, and is used under the CMU BSD-style license.
 ## License
 
 The ST2 Python package and the new C session layer (`csrc/libs/libst2/`) are
-licensed under the MIT license — see [LICENSE](LICENSE).
+licensed under the BSD 2-Clause license — see [LICENSE](LICENSE).
 
 The vendored CMU Sphinx C code under `csrc/` has been modified as part of ST2
 and is dual-licensed: the original portions under the CMU BSD-style license
 (see [`csrc/LICENSE.sphinx`](csrc/LICENSE.sphinx)) and the ST2 modifications
-under MIT. See [`csrc/NOTICE.md`](csrc/NOTICE.md) for the full breakdown.
+under BSD 2-Clause. See [`csrc/NOTICE.md`](csrc/NOTICE.md) for the full breakdown.
